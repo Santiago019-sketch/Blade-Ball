@@ -15,53 +15,52 @@ local Lighting = game:GetService("Lighting")
 local Player = Players.LocalPlayer
 local Balls = workspace:WaitForChild("Balls")
 local Remote = ReplicatedStorage:WaitForChild("Remote")
+local Connections = {}
 
 -- Main Combat Tab
 local MainTab = Window:NewTab("Combat")
 local CombatSection = MainTab:NewSection("Combat")
 
 -- Auto Parry
+local AutoParryConnection
 CombatSection:NewToggle("Auto Parry", "Automatically parries incoming balls", function(state)
-    local lastBallPressed, isKeyPressed = nil, false
-
-    local function calculatePredictionTime(ball, player)
-        local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            local relativePosition = ball.Position - rootPart.Position
-            local velocity = ball.Velocity + rootPart.Velocity 
-            local a = ball.Size.magnitude / 2
-            local b = relativePosition.magnitude
-            local c = math.sqrt(a * a + b * b)
-            return (c - a) / velocity.magnitude
-        end
-        return math.huge
-    end
-
-    local function checkProximityToPlayer(ball, player)
-        local predictionTime = calculatePredictionTime(ball, player)
-        local realBallAttribute = ball:GetAttribute("realBall")
-        local target = ball:GetAttribute("target")
-        local ballSpeedThreshold = math.max(0.4, 0.6 - ball.Velocity.magnitude * 0.01)
-        
-        if predictionTime <= ballSpeedThreshold and realBallAttribute and target == player.Name and not isKeyPressed then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, nil)
-            task.wait(0.005)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, nil)
-            lastBallPressed = ball
-            isKeyPressed = true
-        elseif lastBallPressed == ball and (predictionTime > ballSpeedThreshold or not realBallAttribute or target ~= player.Name) then
-            isKeyPressed = false
-        end
-    end
-
     if state then
-        RunService.Heartbeat:Connect(function()
-            if Player then
-                for _, ball in pairs(Balls:GetChildren()) do
-                    checkProximityToPlayer(ball, Player)
+        if AutoParryConnection then AutoParryConnection:Disconnect() end
+        AutoParryConnection = RunService.Heartbeat:Connect(function()
+            local lastBallPressed, isKeyPressed = nil, false
+
+            local function calculatePredictionTime(ball)
+                local rootPart = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+                if rootPart then
+                    local relativePosition = ball.Position - rootPart.Position
+                    local velocity = ball.Velocity + rootPart.Velocity
+                    local a = ball.Size.magnitude / 2
+                    local b = relativePosition.magnitude
+                    local c = math.sqrt(a * a + b * b)
+                    return (c - a) / velocity.magnitude
+                end
+                return math.huge
+            end
+
+            for _, ball in ipairs(Balls:GetChildren()) do
+                local predictionTime = calculatePredictionTime(ball)
+                local realBall = ball:GetAttribute("realBall")
+                local target = ball:GetAttribute("target")
+                local ballSpeedThreshold = math.max(0.4, 0.6 - ball.Velocity.magnitude * 0.01)
+
+                if predictionTime <= ballSpeedThreshold and realBall and target == Player.Name and not isKeyPressed then
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, nil)
+                    task.wait(0.005)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, nil)
+                    lastBallPressed = ball
+                    isKeyPressed = true
+                elseif lastBallPressed == ball and (predictionTime > ballSpeedThreshold or not realBall or target ~= Player.Name) then
+                    isKeyPressed = false
                 end
             end
         end)
+    else
+        if AutoParryConnection then AutoParryConnection:Disconnect() end
     end
 end)
 
@@ -77,53 +76,46 @@ local UtilitySection = UtilityTab:NewSection("Features")
 -- Ball Follow
 UtilitySection:NewToggle("Follow Ball", "Automatically follow the ball", function(state)
     getgenv().FollowBall = state
-    
-    task.spawn(function()
-        local currentTween = nil
-        
-        while true do
-            task.wait()
-            if getgenv().FollowBall then
-                local ball = Balls:FindFirstChildOfClass("Part")
-                local char = Player.Character
-                
-                if ball and char and char:FindFirstChild("HumanoidRootPart") then
-                    local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false, 0)
-                    local distance = (char.HumanoidRootPart.Position - ball.Position).Magnitude
-                    
-                    if distance <= 1000 then
-                        if currentTween then
-                            currentTween:Cancel()
-                        end
-                        currentTween = TweenService:Create(char.HumanoidRootPart, tweenInfo, {CFrame = ball.CFrame})
-                        currentTween:Play()
-                    end
+    if state then
+        Connections.FollowBall = RunService.Heartbeat:Connect(function()
+            local ball = Balls:FindFirstChildOfClass("Part")
+            local char = Player.Character
+            if ball and char and char:FindFirstChild("HumanoidRootPart") then
+                local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+                local distance = (char.HumanoidRootPart.Position - ball.Position).Magnitude
+                if distance <= 1000 then
+                    TweenService:Create(char.HumanoidRootPart, tweenInfo, {CFrame = ball.CFrame}):Play()
                 end
             end
+        end)
+    else
+        if Connections.FollowBall then
+            Connections.FollowBall:Disconnect()
+            Connections.FollowBall = nil
         end
-    end)
+    end
 end)
 
 -- Night Mode
 UtilitySection:NewToggle("Night Mode", "Toggle night mode", function(state)
     getgenv().NightMode = state
-    
-    task.spawn(function()
-        while task.wait(1) do
-            if getgenv().NightMode then
-                TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 3.9}):Play()
-            else
-                TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 13.5}):Play()
-            end
+    if state then
+        Connections.NightMode = RunService.Heartbeat:Connect(function()
+            TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 3.9}):Play()
+        end)
+    else
+        if Connections.NightMode then
+            Connections.NightMode:Disconnect()
+            Connections.NightMode = nil
+            TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 13.5}):Play()
         end
-    end)
+    end
 end)
 
 -- Shop Tab
 local ShopTab = Window:NewTab("Shop")
 local ShopSection = ShopTab:NewSection("Crates")
 
--- Buy Crates
 ShopSection:NewButton("Buy Sword Crate", "Purchase sword crate", function()
     Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalSwordCrate)
 end)
@@ -132,29 +124,26 @@ ShopSection:NewButton("Buy Explosion Crate", "Purchase explosion crate", functio
     Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalExplosionCrate)
 end)
 
--- Auto Buy Toggles
 ShopSection:NewToggle("Auto Buy Sword Crate", "Automatically buy sword crates", function(state)
     getgenv().AutoBuySword = state
-    
-    task.spawn(function()
-        while task.wait(0.01) do
-            if getgenv().AutoBuySword then
-                Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalSwordCrate)
-            end
-        end
-    end)
+    if state then
+        Connections.AutoBuySword = RunService.Heartbeat:Connect(function()
+            Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalSwordCrate)
+        end)
+    else
+        if Connections.AutoBuySword then Connections.AutoBuySword:Disconnect() end
+    end
 end)
 
 ShopSection:NewToggle("Auto Buy Explosion Crate", "Automatically buy explosion crates", function(state)
     getgenv().AutoBuyExplosion = state
-    
-    task.spawn(function()
-        while task.wait(0.01) do
-            if getgenv().AutoBuyExplosion then
-                Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalExplosionCrate)
-            end
-        end
-    end)
+    if state then
+        Connections.AutoBuyExplosion = RunService.Heartbeat:Connect(function()
+            Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalExplosionCrate)
+        end)
+    else
+        if Connections.AutoBuyExplosion then Connections.AutoBuyExplosion:Disconnect() end
+    end
 end)
 
 -- Settings Tab
