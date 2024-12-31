@@ -1,0 +1,174 @@
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
+
+-- Create Main Window
+local Window = OrionLib:MakeWindow({
+    Name = "Blade Ball - Advanced", 
+    HidePremium = false,
+    SaveConfig = true, 
+    ConfigFolder = "BladeBallConfig"
+})
+
+-- Configuration
+_G.Config = {
+    AutoParry = false,
+    ParryTiming = 10,
+    AutoAbility = false,
+    Debug = false
+}
+
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+local Balls = workspace:WaitForChild("Balls", 9e9)
+
+-- Anticheat bypass
+loadstring(game:GetObjects("rbxassetid://15900013841")[1].Source)()
+
+-- Utility Functions
+local function DebugPrint(...)
+    if _G.Config.Debug then
+        warn("[Debug]:", ...)
+    end
+end
+
+local function VerifyBall(Ball)
+    if typeof(Ball) == "Instance" and Ball:IsA("BasePart") and Ball:IsDescendantOf(Balls) and Ball:GetAttribute("realBall") == true then
+        return true
+    end
+end
+
+local function IsTarget()
+    return (Player.Character and Player.Character:FindFirstChild("Highlight"))
+end
+
+local function Parry()
+    Remotes:WaitForChild("ParryButtonPress"):Fire()
+end
+
+local function UseAbility()
+    if _G.Config.AutoAbility and Player.Character then
+        local Ability = Player.Character:FindFirstChild("Ability")
+        if Ability and Ability.Value ~= "None" then
+            Remotes:WaitForChild("AbilityButtonPress"):Fire()
+        end
+    end
+end
+
+-- Main Combat Tab
+local CombatTab = Window:MakeTab({
+    Name = "Combat",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+CombatTab:AddToggle({
+    Name = "Auto Parry",
+    Default = false,
+    Callback = function(Value)
+        _G.Config.AutoParry = Value
+    end    
+})
+
+CombatTab:AddSlider({
+    Name = "Parry Timing",
+    Min = 1,
+    Max = 20,
+    Default = 10,
+    Color = Color3.fromRGB(255,255,255),
+    Increment = 1,
+    Callback = function(Value)
+        _G.Config.ParryTiming = Value
+    end    
+})
+
+CombatTab:AddToggle({
+    Name = "Auto Ability",
+    Default = false,
+    Callback = function(Value)
+        _G.Config.AutoAbility = Value
+    end    
+})
+
+-- Visuals Tab
+local VisualsTab = Window:MakeTab({
+    Name = "Visuals",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+VisualsTab:AddToggle({
+    Name = "Show Ball Prediction",
+    Default = false,
+    Callback = function(Value)
+        _G.Config.ShowPrediction = Value
+    end    
+})
+
+VisualsTab:AddToggle({
+    Name = "ESP",
+    Default = false,
+    Callback = function(Value)
+        _G.Config.ESP = Value
+    end    
+})
+
+-- Settings Tab
+local SettingsTab = Window:MakeTab({
+    Name = "Settings",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+SettingsTab:AddToggle({
+    Name = "Debug Mode",
+    Default = false,
+    Callback = function(Value)
+        _G.Config.Debug = Value
+    end    
+})
+
+-- Ball Tracking Logic
+Balls.ChildAdded:Connect(function(Ball)
+    if not VerifyBall(Ball) then
+        return
+    end
+    
+    DebugPrint(`Ball Spawned: {Ball}`)
+    
+    local OldPosition = Ball.Position
+    local OldTick = tick()
+    
+    Ball:GetPropertyChangedSignal("Position"):Connect(function()
+        if _G.Config.AutoParry and IsTarget() then
+            local Distance = (Ball.Position - workspace.CurrentCamera.Focus.Position).Magnitude
+            local Velocity = (OldPosition - Ball.Position).Magnitude
+            
+            DebugPrint(`Distance: {Distance}\nVelocity: {Velocity}\nTime: {Distance / Velocity}`)
+        
+            if (Distance / Velocity) <= _G.Config.ParryTiming then
+                Parry()
+                if _G.Config.AutoAbility then
+                    UseAbility()
+                end
+            end
+        end
+        
+        if (tick() - OldTick >= 1/60) then
+            OldTick = tick()
+            OldPosition = Ball.Position
+        end
+    end)
+end)
+
+-- Initialize
+OrionLib:Init()
+
+-- Notification
+OrionLib:MakeNotification({
+    Name = "Script Loaded",
+    Content = "Blade Ball script has been loaded successfully!",
+    Image = "rbxassetid://4483345998",
+    Time = 5
+})
