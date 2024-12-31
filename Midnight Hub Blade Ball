@@ -1,174 +1,170 @@
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
-
--- Create Main Window
-local Window = OrionLib:MakeWindow({
-    Name = "Blade Ball - Advanced", 
-    HidePremium = false,
-    SaveConfig = true, 
-    ConfigFolder = "BladeBallConfig"
-})
-
--- Configuration
-_G.Config = {
-    AutoParry = false,
-    ParryTiming = 10,
-    AutoAbility = false,
-    Debug = false
-}
+-- FPS Cap & Initial Setup
+setfpscap(120)
+local Library = loadstring(game:HttpGet("https://pastebin.com/raw/vff1bQ9F"))()
+local Window = Library.CreateLib("Blade Ball GUI", "LightTheme")
 
 -- Services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local Player = Players.LocalPlayer or Players.PlayerAdded:Wait()
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
-local Balls = workspace:WaitForChild("Balls", 9e9)
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
 
--- Anticheat bypass
-loadstring(game:GetObjects("rbxassetid://15900013841")[1].Source)()
-
--- Utility Functions
-local function DebugPrint(...)
-    if _G.Config.Debug then
-        warn("[Debug]:", ...)
-    end
-end
-
-local function VerifyBall(Ball)
-    if typeof(Ball) == "Instance" and Ball:IsA("BasePart") and Ball:IsDescendantOf(Balls) and Ball:GetAttribute("realBall") == true then
-        return true
-    end
-end
-
-local function IsTarget()
-    return (Player.Character and Player.Character:FindFirstChild("Highlight"))
-end
-
-local function Parry()
-    Remotes:WaitForChild("ParryButtonPress"):Fire()
-end
-
-local function UseAbility()
-    if _G.Config.AutoAbility and Player.Character then
-        local Ability = Player.Character:FindFirstChild("Ability")
-        if Ability and Ability.Value ~= "None" then
-            Remotes:WaitForChild("AbilityButtonPress"):Fire()
-        end
-    end
-end
+-- Variables
+local Player = Players.LocalPlayer
+local Balls = workspace:WaitForChild("Balls")
+local Remote = ReplicatedStorage:WaitForChild("Remote")
 
 -- Main Combat Tab
-local CombatTab = Window:MakeTab({
-    Name = "Combat",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local MainTab = Window:NewTab("Combat")
+local CombatSection = MainTab:NewSection("Combat")
 
-CombatTab:AddToggle({
-    Name = "Auto Parry",
-    Default = false,
-    Callback = function(Value)
-        _G.Config.AutoParry = Value
-    end    
-})
+-- Auto Parry
+CombatSection:NewToggle("Auto Parry", "Automatically parries incoming balls", function(state)
+    local lastBallPressed, isKeyPressed = nil, false
 
-CombatTab:AddSlider({
-    Name = "Parry Timing",
-    Min = 1,
-    Max = 20,
-    Default = 10,
-    Color = Color3.fromRGB(255,255,255),
-    Increment = 1,
-    Callback = function(Value)
-        _G.Config.ParryTiming = Value
-    end    
-})
-
-CombatTab:AddToggle({
-    Name = "Auto Ability",
-    Default = false,
-    Callback = function(Value)
-        _G.Config.AutoAbility = Value
-    end    
-})
-
--- Visuals Tab
-local VisualsTab = Window:MakeTab({
-    Name = "Visuals",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-VisualsTab:AddToggle({
-    Name = "Show Ball Prediction",
-    Default = false,
-    Callback = function(Value)
-        _G.Config.ShowPrediction = Value
-    end    
-})
-
-VisualsTab:AddToggle({
-    Name = "ESP",
-    Default = false,
-    Callback = function(Value)
-        _G.Config.ESP = Value
-    end    
-})
-
--- Settings Tab
-local SettingsTab = Window:MakeTab({
-    Name = "Settings",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-SettingsTab:AddToggle({
-    Name = "Debug Mode",
-    Default = false,
-    Callback = function(Value)
-        _G.Config.Debug = Value
-    end    
-})
-
--- Ball Tracking Logic
-Balls.ChildAdded:Connect(function(Ball)
-    if not VerifyBall(Ball) then
-        return
+    local function calculatePredictionTime(ball, player)
+        local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            local relativePosition = ball.Position - rootPart.Position
+            local velocity = ball.Velocity + rootPart.Velocity 
+            local a = ball.Size.magnitude / 2
+            local b = relativePosition.magnitude
+            local c = math.sqrt(a * a + b * b)
+            return (c - a) / velocity.magnitude
+        end
+        return math.huge
     end
-    
-    DebugPrint(`Ball Spawned: {Ball}`)
-    
-    local OldPosition = Ball.Position
-    local OldTick = tick()
-    
-    Ball:GetPropertyChangedSignal("Position"):Connect(function()
-        if _G.Config.AutoParry and IsTarget() then
-            local Distance = (Ball.Position - workspace.CurrentCamera.Focus.Position).Magnitude
-            local Velocity = (OldPosition - Ball.Position).Magnitude
-            
-            DebugPrint(`Distance: {Distance}\nVelocity: {Velocity}\nTime: {Distance / Velocity}`)
+
+    local function checkProximityToPlayer(ball, player)
+        local predictionTime = calculatePredictionTime(ball, player)
+        local realBallAttribute = ball:GetAttribute("realBall")
+        local target = ball:GetAttribute("target")
+        local ballSpeedThreshold = math.max(0.4, 0.6 - ball.Velocity.magnitude * 0.01)
         
-            if (Distance / Velocity) <= _G.Config.ParryTiming then
-                Parry()
-                if _G.Config.AutoAbility then
-                    UseAbility()
+        if predictionTime <= ballSpeedThreshold and realBallAttribute and target == player.Name and not isKeyPressed then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, nil)
+            task.wait(0.005)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, nil)
+            lastBallPressed = ball
+            isKeyPressed = true
+        elseif lastBallPressed == ball and (predictionTime > ballSpeedThreshold or not realBallAttribute or target ~= player.Name) then
+            isKeyPressed = false
+        end
+    end
+
+    if state then
+        RunService.Heartbeat:Connect(function()
+            if Player then
+                for _, ball in pairs(Balls:GetChildren()) do
+                    checkProximityToPlayer(ball, Player)
                 end
             end
-        end
+        end)
+    end
+end)
+
+-- Manual Spam
+CombatSection:NewButton("Manual Spam", "Opens manual spam UI", function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Atreus-Hub/Open-Source/main/manual%20spam"))()
+end)
+
+-- Utility Tab
+local UtilityTab = Window:NewTab("Utility")
+local UtilitySection = UtilityTab:NewSection("Features")
+
+-- Ball Follow
+UtilitySection:NewToggle("Follow Ball", "Automatically follow the ball", function(state)
+    getgenv().FollowBall = state
+    
+    task.spawn(function()
+        local currentTween = nil
         
-        if (tick() - OldTick >= 1/60) then
-            OldTick = tick()
-            OldPosition = Ball.Position
+        while true do
+            task.wait()
+            if getgenv().FollowBall then
+                local ball = Balls:FindFirstChildOfClass("Part")
+                local char = Player.Character
+                
+                if ball and char and char:FindFirstChild("HumanoidRootPart") then
+                    local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false, 0)
+                    local distance = (char.HumanoidRootPart.Position - ball.Position).Magnitude
+                    
+                    if distance <= 1000 then
+                        if currentTween then
+                            currentTween:Cancel()
+                        end
+                        currentTween = TweenService:Create(char.HumanoidRootPart, tweenInfo, {CFrame = ball.CFrame})
+                        currentTween:Play()
+                    end
+                end
+            end
         end
     end)
 end)
 
--- Initialize
-OrionLib:Init()
+-- Night Mode
+UtilitySection:NewToggle("Night Mode", "Toggle night mode", function(state)
+    getgenv().NightMode = state
+    
+    task.spawn(function()
+        while task.wait(1) do
+            if getgenv().NightMode then
+                TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 3.9}):Play()
+            else
+                TweenService:Create(Lighting, TweenInfo.new(3), {ClockTime = 13.5}):Play()
+            end
+        end
+    end)
+end)
 
--- Notification
-OrionLib:MakeNotification({
-    Name = "Script Loaded",
-    Content = "Blade Ball script has been loaded successfully!",
-    Image = "rbxassetid://4483345998",
-    Time = 5
-})
+-- Shop Tab
+local ShopTab = Window:NewTab("Shop")
+local ShopSection = ShopTab:NewSection("Crates")
+
+-- Buy Crates
+ShopSection:NewButton("Buy Sword Crate", "Purchase sword crate", function()
+    Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalSwordCrate)
+end)
+
+ShopSection:NewButton("Buy Explosion Crate", "Purchase explosion crate", function()
+    Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalExplosionCrate)
+end)
+
+-- Auto Buy Toggles
+ShopSection:NewToggle("Auto Buy Sword Crate", "Automatically buy sword crates", function(state)
+    getgenv().AutoBuySword = state
+    
+    task.spawn(function()
+        while task.wait(0.01) do
+            if getgenv().AutoBuySword then
+                Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalSwordCrate)
+            end
+        end
+    end)
+end)
+
+ShopSection:NewToggle("Auto Buy Explosion Crate", "Automatically buy explosion crates", function(state)
+    getgenv().AutoBuyExplosion = state
+    
+    task.spawn(function()
+        while task.wait(0.01) do
+            if getgenv().AutoBuyExplosion then
+                Remote.RemoteFunction:InvokeServer("PromptPurchaseCrate", workspace.Spawn.Crates.NormalExplosionCrate)
+            end
+        end
+    end)
+end)
+
+-- Settings Tab
+local SettingsTab = Window:NewTab("Settings")
+local SettingsSection = SettingsTab:NewSection("Configuration")
+
+SettingsSection:NewSlider("Parry Distance", "Adjust auto parry distance", 1, 20, 10, function(value)
+    getgenv().ParryDistance = value
+end)
+
+SettingsSection:NewKeybind("Toggle GUI", "Toggle the GUI visibility", Enum.KeyCode.RightControl, function()
+    Library:ToggleUI()
+end)
